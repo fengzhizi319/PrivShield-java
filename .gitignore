@@ -1,0 +1,30 @@
+# Maven build output
+**/target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env
+*.env.local
+
+# Node modules (for console/web)
+**/node_modules/
+**/dist/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Go build output (for console/backend-go)
+console/backend-go/server

@@ -1,0 +1,50 @@
+# =============================================================================
+# PrivShield Java Agent — 配置
+# =============================================================================
+
+server:
+  port: ${PRIVACY_REST_PORT:8079}
+  compression:
+    enabled: true
+    min-response-size: 1000
+
+# gRPC server (grpc-spring-boot-starter)
+grpc:
+  server:
+    port: ${PRIVACY_GRPC_PORT:50051}
+    # 64 MiB max message size — 与 Python Agent / Go 客户端保持一致
+    max-inbound-message-size: 67108864
+    max-outbound-message-size: 67108864
+
+# Privacy Agent 配置
+privacy:
+  namespace: ${PRIVACY_NAMESPACE:default}
+  profile-path: ${PRIVACY_PROFILE:#{null}}
+  rules-dir: ${PRIVACY_RULES_DIR:rules}
+  config-dir: ${PRIVACY_CONFIG_DIR:config}
+
+# Security
+security:
+  auth-enabled: ${PRIVACY_AUTH_ENABLED:false}
+  api-key: ${PRIVACY_API_KEY:}
+  tls-enabled: ${PRIVACY_TLS_ENABLED:false}
+  rate-limit-enabled: ${PRIVACY_RATE_LIMIT_ENABLED:false}
+  rate-limit-rps: ${PRIVACY_RATE_LIMIT_RPS:100}
+
+# Actuator / Metrics
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Logging
+logging:
+  level:
+    root: ${PRIVACY_LOG_LEVEL:INFO}
+    com.privshield: ${PRIVACY_LOG_LEVEL:INFO}
+    net.devh.boot.grpc: INFO
