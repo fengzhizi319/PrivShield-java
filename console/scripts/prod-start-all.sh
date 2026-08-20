@@ -21,7 +21,6 @@ for arg in "$@"; do
     esac
 done
 
-AGENT_VENV="$PROJECT_ROOT/.venv"
 BACKEND_VENV="$CONSOLE_DIR/backend/.venv"
 
 AGENT_URL="http://127.0.0.1:8079"
@@ -100,20 +99,22 @@ check_port_available() {
     esac
 }
 
-# 1. Agent 虚拟环境
-if [[ ! -d "$AGENT_VENV" ]]; then
-    python3 -m venv "$AGENT_VENV"
+# 1. 确保 Java 环境与 Agent JAR 存在
+if ! command -v java >/dev/null 2>&1; then
+    echo "错误：未找到 Java 运行时 (需要 Java 17+)，请先安装 Java。"
+    exit 1
+fi
+
+AGENT_JAR="$(find "$PROJECT_ROOT/agent/agent-server/target" -maxdepth 1 -name "agent-server*.jar" ! -name "*.original" 2>/dev/null | head -n 1)"
+if [[ "$REBUILD" == true || -z "$AGENT_JAR" || ! -f "$AGENT_JAR" ]]; then
+    echo "构建 Java Agent..."
+    if ! command -v mvn >/dev/null 2>&1; then
+        echo "错误：未找到 Maven 工具链，请先安装 Maven 3.8+。"
+        exit 1
+    fi
     (
-        source "$AGENT_VENV/bin/activate"
-        cd "$PROJECT_ROOT"
-        pip install --upgrade pip >/dev/null
-        pip install -e .
-    )
-elif [[ "$REBUILD" == true ]]; then
-    (
-        source "$AGENT_VENV/bin/activate"
-        cd "$PROJECT_ROOT"
-        pip install -e .
+        cd "$PROJECT_ROOT/agent"
+        mvn clean package -DskipTests -q
     )
 fi
 
@@ -203,15 +204,18 @@ check_port_available 50051 "PrivShield gRPC"
 check_port_available 8080 "Python REST 代理后端"
 check_port_available 8081 "Go gRPC 代理后端"
 
+# 启动 PrivShield Java Agent
 launch_agent() {
     local agent_log="$PROJECT_ROOT/.logs/agent_all.log"
     mkdir -p "$PROJECT_ROOT/.logs"
-    echo "启动 PrivShield (REST: $AGENT_URL, gRPC: 127.0.0.1:50051)，日志: $agent_log..."
+    echo "启动 PrivShield Java Agent (REST: $AGENT_URL, gRPC: 127.0.0.1:50051)，日志: $agent_log..."
+    local jar_path
+    jar_path="$(find "$PROJECT_ROOT/agent/agent-server/target" -maxdepth 1 -name "agent-server*.jar" ! -name "*.original" 2>/dev/null | head -n 1)"
     (
-        source "$AGENT_VENV/bin/activate"
-        cd "$PROJECT_ROOT"
-        # 日志持久化到 .logs/agent_all.log，agent 崩溃/重启后可回溯根因
-        exec python -m PrivShield.server >> "$agent_log" 2>&1
+        cd "$PROJECT_ROOT/agent"
+        exec java -jar "$jar_path" \
+            --server.port=8079 \
+            --grpc.server.port=50051 >> "$agent_log" 2>&1
     ) &
     AGENT_PID=$!
     PIDS[0]="$AGENT_PID"

@@ -27,20 +27,13 @@ $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";
 Write-Host ""
 Write-Host "====== Prerequisites ======" -ForegroundColor Cyan
 
-# Python: prefer conda privshield env
-$PythonExe = $null
-$CondaPy = "$env:USERPROFILE\miniconda3\envs\privshield\python.exe"
-if (Test-Path $CondaPy) {
-    $PythonExe = $CondaPy
-    Write-Host "  Python: $PythonExe (conda privshield)" -ForegroundColor Green
+# Java
+$JavaExe = (Get-Command java -ErrorAction SilentlyContinue).Source
+if ($JavaExe) {
+    Write-Host "  Java: $(& java -version 2>&1 | Select-Object -First 1)" -ForegroundColor Green
 } else {
-    $PythonExe = (Get-Command python -ErrorAction SilentlyContinue).Source
-    if ($PythonExe) {
-        Write-Host "  Python: $PythonExe" -ForegroundColor Yellow
-    } else {
-        Write-Host "  ERROR: Python not found. Install Python 3.13+ first." -ForegroundColor Red
-        exit 1
-    }
+    Write-Host "  ERROR: Java not found. Install JDK 17+ first." -ForegroundColor Red
+    exit 1
 }
 
 # Go
@@ -92,7 +85,7 @@ try {
     Write-Host "  Go backend built OK" -ForegroundColor Green
 } finally { Pop-Location }
 
-# ── 3. Start Python Agent ───────────────────────────────────────────
+# ── 3. Start Java Agent ─────────────────────────────────────────────
 Write-Host ""
 Write-Host "====== Start services ======" -ForegroundColor Cyan
 
@@ -100,11 +93,22 @@ $LogsDir = Join-Path $ProjectRoot ".logs"
 if (-not (Test-Path $LogsDir)) { New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null }
 $AgentLog = Join-Path $LogsDir "agent_go.log"
 
-Write-Host "  Starting PrivShield (REST: $AgentUrl, gRPC: 127.0.0.1:50051)..." -ForegroundColor Yellow
-$env:PYTHONPATH = $ProjectRoot
-$AgentProcess = Start-Process -FilePath $PythonExe `
-    -ArgumentList "-m", "PrivShield.server" `
-    -WorkingDirectory $ProjectRoot `
+$AgentTargetDir = Join-Path (Join-Path $ProjectRoot "agent") (Join-Path "agent-server" "target")
+$AgentJar = Get-ChildItem -Path $AgentTargetDir -Filter "agent-server*.jar" -Exclude "*.original" -ErrorAction SilentlyContinue | Select-Object -First 1
+
+if (-not $AgentJar) {
+    Write-Host "  Building Java Agent..." -ForegroundColor Yellow
+    Push-Location (Join-Path $ProjectRoot "agent")
+    try {
+        & mvn clean package -DskipTests -q
+    } finally { Pop-Location }
+    $AgentJar = Get-ChildItem -Path $AgentTargetDir -Filter "agent-server*.jar" -Exclude "*.original" -ErrorAction SilentlyContinue | Select-Object -First 1
+}
+
+Write-Host "  Starting PrivShield Java Agent (REST: $AgentUrl, gRPC: 127.0.0.1:50051)..." -ForegroundColor Yellow
+$AgentProcess = Start-Process -FilePath $JavaExe `
+    -ArgumentList "-jar", "`"$($AgentJar.FullName)`"", "--server.port=8079", "--grpc.server.port=50051" `
+    -WorkingDirectory (Join-Path $ProjectRoot "agent") `
     -RedirectStandardOutput $AgentLog `
     -RedirectStandardError (Join-Path $LogsDir "agent_go_err.log") `
     -PassThru -NoNewWindow

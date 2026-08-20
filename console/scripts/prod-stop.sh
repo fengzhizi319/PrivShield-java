@@ -48,9 +48,9 @@ kill_by_port() {
     local name="$2"
     local pids=""
     if command -v lsof >/dev/null 2>&1; then
-        pids=$(lsof -t -i :"$port" 2>/dev/null | sort -u | tr '\n' ' ')
+        pids=$( (lsof -t -i :"$port" 2>/dev/null || true) | sort -u | tr '\n' ' ')
     elif command -v fuser >/dev/null 2>&1; then
-        pids=$(fuser "$port"/tcp 2>/dev/null | tr -s ' ')
+        pids=$(fuser "$port"/tcp 2>/dev/null | tr -s ' ' || true)
     fi
 
     if [[ -n "$pids" ]]; then

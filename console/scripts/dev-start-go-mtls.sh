@@ -21,7 +21,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONSOLE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-AGENT_VENV="$PROJECT_ROOT/.venv"
 CERT_DIR="$CONSOLE_DIR/backend-go/certs"
 GEN_CERTS="$CONSOLE_DIR/backend-go/scripts/gen-certs.sh"
 
@@ -110,15 +109,22 @@ else
     echo "复用已有 mTLS 证书：$CERT_DIR"
 fi
 
-# 2. Agent 虚拟环境
-if [[ ! -d "$AGENT_VENV" ]]; then
-    echo "未找到 agent 虚拟环境，自动创建并安装依赖：$AGENT_VENV"
-    python3 -m venv "$AGENT_VENV"
+# 2. 确保 Java 环境与 Agent JAR 存在
+if ! command -v java >/dev/null 2>&1; then
+    echo "错误：未找到 Java 运行时 (需要 Java 17+)，请先安装 Java。"
+    exit 1
+fi
+
+AGENT_JAR="$(find "$PROJECT_ROOT/agent/agent-server/target" -maxdepth 1 -name "agent-server*.jar" ! -name "*.original" 2>/dev/null | head -n 1)"
+if [[ -z "$AGENT_JAR" || ! -f "$AGENT_JAR" ]]; then
+    echo "未找到 Java Agent jar，自动编译构建..."
+    if ! command -v mvn >/dev/null 2>&1; then
+        echo "错误：未找到 Maven 工具链，请先安装 Maven 3.8+。"
+        exit 1
+    fi
     (
-        source "$AGENT_VENV/bin/activate"
-        cd "$PROJECT_ROOT"
-        pip install --upgrade pip >/dev/null
-        pip install -e .
+        cd "$PROJECT_ROOT/agent"
+        mvn clean package -DskipTests -q
     )
 fi
 
@@ -177,17 +183,19 @@ check_port_available 5173 "Vite 前端开发服务器"
 launch_agent() {
     local agent_log="$PROJECT_ROOT/.logs/agent_go_mtls.log"
     mkdir -p "$PROJECT_ROOT/.logs"
-    echo "启动 PrivShield (gRPC mTLS: $AGENT_GRPC_ADDR, client_auth=require)，日志: $agent_log..."
+    echo "启动 PrivShield Java Agent (gRPC mTLS: $AGENT_GRPC_ADDR, client_auth=require)，日志: $agent_log..."
+    local jar_path
+    jar_path="$(find "$PROJECT_ROOT/agent/agent-server/target" -maxdepth 1 -name "agent-server*.jar" ! -name "*.original" 2>/dev/null | head -n 1)"
     (
-        source "$AGENT_VENV/bin/activate"
-        cd "$PROJECT_ROOT"
+        cd "$PROJECT_ROOT/agent"
         export PRIVACY_TLS_ENABLED=true
         export PRIVACY_TLS_CERT_FILE="$CERT_DIR/server.crt"
         export PRIVACY_TLS_KEY_FILE="$CERT_DIR/server.key"
         export PRIVACY_TLS_CA_FILE="$CERT_DIR/ca.crt"
         export PRIVACY_TLS_CLIENT_AUTH=require
-        # 日志持久化到 .logs/agent_go_mtls.log，agent 崩溃/重启后可回溯根因
-        exec python -m PrivShield.server >> "$agent_log" 2>&1
+        exec java -jar "$jar_path" \
+            --server.port=8079 \
+            --grpc.server.port=50051 >> "$agent_log" 2>&1
     ) &
     AGENT_PID=$!
     PIDS[0]="$AGENT_PID"

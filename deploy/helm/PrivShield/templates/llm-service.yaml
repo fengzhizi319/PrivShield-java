@@ -1,0 +1,28 @@
+# =============================================================================
+# Layer-3 LLM 推理服务 Service（llm-service.yaml）
+# =============================================================================
+# 为 LLM Deployment 提供集群内部稳定访问入口（<fullname>-llm:<port>）。
+# core 通过 PRIVACY_LLM_API_BASE 环境变量调用（已由 deployment.yaml 注入）。
+# 仅在 llm.enabled=true 时创建。
+# =============================================================================
+{{- if .Values.llm.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "PrivShield.fullname" . }}-llm
+  labels:
+    {{- include "PrivShield.labels" . | nindent 4 }}
+    # 组件标签：区分 LLM 和 core
+    app.kubernetes.io/component: llm
+spec:
+  # ClusterIP 类型（仅集群内部访问）
+  type: ClusterIP
+  # 通过 selectorLabels + component 标签匹配 LLM Pod
+  selector:
+    {{- include "PrivShield.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: llm
+  ports:
+    - name: http
+      port: {{ .Values.llm.port }}
+      targetPort: http
+{{- end }}

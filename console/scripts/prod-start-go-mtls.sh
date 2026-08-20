@@ -13,13 +13,14 @@ CONSOLE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 REBUILD=false
+FORCE=false
 for arg in "$@"; do
     case "$arg" in
         --rebuild) REBUILD=true ;;
+        -f|--force) FORCE=true ;;
     esac
 done
 
-AGENT_VENV="$PROJECT_ROOT/.venv"
 CERT_DIR="$CONSOLE_DIR/backend-go/certs"
 GEN_CERTS="$CONSOLE_DIR/backend-go/scripts/gen-certs.sh"
 
@@ -70,6 +71,15 @@ check_port_available() {
         exit 1
     fi
 
+    if [[ "$FORCE" == "true" ]]; then
+        echo "检测到 --force 参数，正在自动终止占用端口 $port 的进程 ($pids)..."
+        for pid in $pids; do
+            kill -9 "$pid" 2>/dev/null || true
+        done
+        sleep 1
+        return 0
+    fi
+
     read -rp "是否自动终止上述进程以释放端口？[y/N] " answer
     case "$answer" in
         [yY]|[yY][eE][sS])
@@ -97,20 +107,22 @@ if [[ ! -f "$CERT_DIR/ca.crt" || ! -f "$CERT_DIR/server.crt" || ! -f "$CERT_DIR/
     bash "$GEN_CERTS" "$CERT_DIR"
 fi
 
-# 2. Agent 依赖
-if [[ ! -d "$AGENT_VENV" ]]; then
-    python3 -m venv "$AGENT_VENV"
+# 2. 确保 Java 环境与 Agent JAR 存在
+if ! command -v java >/dev/null 2>&1; then
+    echo "错误：未找到 Java 运行时 (需要 Java 17+)，请先安装 Java。"
+    exit 1
+fi
+
+AGENT_JAR="$(find "$PROJECT_ROOT/agent/agent-server/target" -maxdepth 1 -name "agent-server*.jar" ! -name "*.original" 2>/dev/null | head -n 1)"
+if [[ "$REBUILD" == true || -z "$AGENT_JAR" || ! -f "$AGENT_JAR" ]]; then
+    echo "构建 Java Agent..."
+    if ! command -v mvn >/dev/null 2>&1; then
+        echo "错误：未找到 Maven 工具链，请先安装 Maven 3.8+。"
+        exit 1
+    fi
     (
-        source "$AGENT_VENV/bin/activate"
-        cd "$PROJECT_ROOT"
-        pip install --upgrade pip >/dev/null
-        pip install -e .
-    )
-elif [[ "$REBUILD" == true ]]; then
-    (
-        source "$AGENT_VENV/bin/activate"
-        cd "$PROJECT_ROOT"
-        pip install -e .
+        cd "$PROJECT_ROOT/agent"
+        mvn clean package -DskipTests -q
     )
 fi
 
@@ -183,20 +195,23 @@ check_port_available 8079 "PrivShield REST"
 check_port_available 50051 "PrivShield gRPC (mTLS)"
 check_port_available 8081 "Go gRPC 代理后端"
 
+# 启动 PrivShield Java Agent
 launch_agent() {
     local agent_log="$PROJECT_ROOT/.logs/agent_go_mtls.log"
     mkdir -p "$PROJECT_ROOT/.logs"
-    echo "启动 PrivShield (gRPC mTLS: $AGENT_GRPC_ADDR, client_auth=require)，日志: $agent_log..."
+    echo "启动 PrivShield Java Agent (gRPC mTLS: $AGENT_GRPC_ADDR, client_auth=require)，日志: $agent_log..."
+    local jar_path
+    jar_path="$(find "$PROJECT_ROOT/agent/agent-server/target" -maxdepth 1 -name "agent-server*.jar" ! -name "*.original" 2>/dev/null | head -n 1)"
     (
-        source "$AGENT_VENV/bin/activate"
-        cd "$PROJECT_ROOT"
+        cd "$PROJECT_ROOT/agent"
         export PRIVACY_TLS_ENABLED=true
         export PRIVACY_TLS_CERT_FILE="$CERT_DIR/server.crt"
         export PRIVACY_TLS_KEY_FILE="$CERT_DIR/server.key"
         export PRIVACY_TLS_CA_FILE="$CERT_DIR/ca.crt"
         export PRIVACY_TLS_CLIENT_AUTH=require
-        # 日志持久化到 .logs/agent_go_mtls.log，agent 崩溃/重启后可回溯根因
-        exec python -m PrivShield.server >> "$agent_log" 2>&1
+        exec java -jar "$jar_path" \
+            --server.port=8079 \
+            --grpc.server.port=50051 >> "$agent_log" 2>&1
     ) &
     AGENT_PID=$!
     PIDS[0]="$AGENT_PID"

@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: PrivShield
+  namespace: PrivShield
+  labels:
+    app: PrivShield
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: PrivShield
+  template:
+    metadata:
+      labels:
+        app: PrivShield
+    spec:
+      containers:
+        - name: agent
+          image: privshield-java-agent:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8079
+            - name: grpc
+              containerPort: 50051
+          env:
+            - name: PRIVACY_REST_HOST
+              value: "0.0.0.0"
+            - name: PRIVACY_REST_PORT
+              value: "8079"
+            - name: PRIVACY_GRPC_HOST
+              value: "0.0.0.0"
+            - name: PRIVACY_GRPC_PORT
+              value: "50051"
+            - name: PRIVACY_PROFILE
+              value: "/etc/PrivShield/privacy-profile.yaml"
+            - name: PRIVACY_LOG_LEVEL
+              value: "INFO"
+            - name: PRIVACY_LOG_FORMAT
+              value: "text"
+            # 如需启用 TLS，取消下面注释并确保证书 Secret 已创建
+            # - name: PRIVACY_TLS_ENABLED
+            #   value: "true"
+            # - name: PRIVACY_TLS_CERT_FILE
+            #   value: "/certs/tls.crt"
+            # - name: PRIVACY_TLS_KEY_FILE
+            #   value: "/certs/tls.key"
+            # 如需启用认证，取消下面注释并确保 API Key Secret 已创建
+            # - name: PRIVACY_AUTH_ENABLED
+            #   value: "true"
+            # - name: PRIVACY_AUTH_EXTERNAL_KEYS_JSON
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: PrivShield-apikeys
+            #       key: api-keys.json
+            # 如需启用 Layer-3 LLM 独立推理服务（运行时解耦），取消下面注释并部署
+            # llm-deployment.yaml / llm-service.yaml（LLM 挂掉时 core 自动降级 Layer-1+2）：
+            # - name: PRIVACY_LLM_PROVIDER
+            #   value: "vllm"
+            # - name: PRIVACY_LLM_API_BASE
+            #   value: "http://PrivShield-llm:8000/v1"
+            # - name: PRIVACY_LLM_MODEL_NAME
+            #   value: "Qwen3.5-0.8B-Privacy-Classifier-Smoother"
+            # - name: PRIVACY_LLM_API_KEY
+            #   value: "EMPTY"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/PrivShield
+              readOnly: true
+            # - name: tls-certs
+            #   mountPath: /certs
+            #   readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+      volumes:
+        - name: config
+          configMap:
+            name: PrivShield-config
+        # - name: tls-certs
+        #   secret:
+        #     secretName: PrivShield-tls

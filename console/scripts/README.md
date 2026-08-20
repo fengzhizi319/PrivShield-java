@@ -194,8 +194,11 @@
    - 脚本在启动前会自动检测目标端口（如 `8079`、`8080`、`8081`、`5173`）是否被占用。
    - 若检测到端口被占用，脚本会提示并可自动终止冲突进程。
 
-2. **虚拟环境依赖缺失**：
-   - `dev-*.sh` 与 `prod-*.sh` 会自动检测 `.venv` 虚拟环境。若不存在，脚本会自动创建并安装 `requirements.txt` 与 `pip install -e .`。
+2. **依赖环境缺失**：
+   - **Java Agent**：需 JDK 17+ 与 Maven 3.8+。脚本会自动检测 `agent-server*.jar`，若未构建会自动调用 Maven 进行打包。
+   - **Go 代理后端**：需 Go 1.21+ 工具链，脚本会自动编译生成二进制。
+   - **Python 代理后端**：若使用 Python 模式，脚本会自动创建 `console/backend/.venv` 并安装 `requirements.txt`。
+   - **Web 前端**：需 Node.js 16+。脚本会自动检测 `node_modules`，缺失时自动安装依赖。
 
 3. **前端热更新失效**：
    - 若使用 `dev-*.sh` 启动后热更新不生效，请检查 `console/web/vite.config.ts` 中的代理配置及网络防火墙设置。

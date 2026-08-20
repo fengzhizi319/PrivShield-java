@@ -15,8 +15,10 @@ echo "[1/2] Building agent-server..."
 cd "$AGENT_DIR"
 mvn clean package -DskipTests -q
 
+JAR_PATH="$(find "$AGENT_DIR/agent-server/target" -maxdepth 1 -name "agent-server*.jar" ! -name "*.original" 2>/dev/null | head -n 1)"
+
 # 启动
 echo "[2/2] Starting Java Agent (REST :8079 + gRPC :50051)..."
-java -jar agent-server/target/agent-server.jar \
+java -jar "$JAR_PATH" \
   --server.port="${PRIVACY_REST_PORT:-8079}" \
   --grpc.server.port="${PRIVACY_GRPC_PORT:-50051}"

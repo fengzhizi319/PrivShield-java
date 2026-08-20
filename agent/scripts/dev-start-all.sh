@@ -30,8 +30,8 @@ trap cleanup SIGINT SIGTERM
 # ─── 1. 启动 Java Agent ───
 log "Building and starting Java Agent..."
 cd "$AGENT_DIR"
-mvn clean package -DskipTests -q
-java -jar agent-server/target/agent-server.jar \
+JAR_PATH="$(find "$AGENT_DIR/agent-server/target" -maxdepth 1 -name "agent-server*.jar" ! -name "*.original" 2>/dev/null | head -n 1)"
+java -jar "$JAR_PATH" \
   --server.port="${PRIVACY_REST_PORT:-8079}" \
   --grpc.server.port="${PRIVACY_GRPC_PORT:-50051}" &
 AGENT_PID=$!
